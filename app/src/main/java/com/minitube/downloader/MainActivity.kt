@@ -143,7 +143,7 @@ class MainActivity : Activity() {
                         put(MediaStore.MediaColumns.MIME_TYPE, if(audio) "audio/mpeg" else "video/mp4")
                         put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/MiniTube")
                     }
-                    val collection = if (audio) MediaStore.Audio.Media.EXTERNAL_CONTENT_URI else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
                     val uri = contentResolver.insert(collection, values) ?: error("فشل إنشاء الملف في التنزيلات")
                     try {
                         contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("فشل فتح ملف الحفظ")
