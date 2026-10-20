@@ -64,17 +64,26 @@ class DownloadService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action != START || running) return START_NOT_STICKY
+        val requestedUrl = intent.getStringExtra("url")?.trim() ?: ""
+        val requestedAudio = intent.getBooleanExtra("audio", false)
+        val requestedExt = intent.getStringExtra("extension") ?: ""
+        val validExt = requestedExt in (if (requestedAudio) setOf("mp3", "m4a") else setOf("mp4", "mkv"))
+        if (!SafeMediaUrl.isAllowed(requestedUrl) || !validExt || (intent.getBooleanExtra("playlist", false) && !SafeMediaUrl.isYoutube(requestedUrl))) {
+            notifyState("تم رفض رابط أو إعدادات تنزيل غير صالحة", finished = true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         running = true
         stopped = false
         completed = 0
         total = 0
         etaSeconds = -1
-        val url = intent.getStringExtra("url") ?: ""
+        val url = requestedUrl
         val playlist = intent.getBooleanExtra("playlist", false)
         val audio = intent.getBooleanExtra("audio", false)
-        val ext = intent.getStringExtra("extension") ?: if (audio) "mp3" else "mp4"
-        val height = intent.getIntExtra("height", 720)
-        val bitrate = intent.getStringExtra("bitrate") ?: "128K"
+        val ext = requestedExt
+        val height = intent.getIntExtra("height", 720).takeIf { it in listOf(360, 720, 1080, 2160) } ?: 720
+        val bitrate = intent.getStringExtra("bitrate")?.takeIf { it in setOf("128K", "192K", "320K") } ?: "128K"
         notifyState("جارٍ تجهيز التنزيل...")
         thread {
             var failures = 0
@@ -94,6 +103,7 @@ class DownloadService : Service() {
                     out.lines().map { it.trim() }.filter { Regex("^[a-zA-Z0-9_-]{11}$").matches(it) }.distinct()
                         .map { "https://www.youtube.com/watch?v=" + it }
                 } else listOf(url)
+                if (links.size > 500) error("القائمة طويلة جدًا؛ الحد الأقصى 500 عنصر لكل مهمة")
                 total = links.size
                 if (links.isEmpty()) error("القائمة فارغة أو غير متاحة")
                 for ((index, link) in links.withIndex()) {
@@ -105,6 +115,7 @@ class DownloadService : Service() {
                         request.addOption("--no-playlist")
                         request.addOption("--restrict-filenames")
                         request.addOption("--socket-timeout", "20")
+                        request.addOption("--max-filesize", "2G")
                         request.addOption("--retries", "3")
                         request.addOption("--fragment-retries", "3")
                         request.addOption("-o", File(dir, "%(id)s-%(title).100B.%(ext)s").absolutePath)
