@@ -12,6 +12,11 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.widget.*
 import android.view.ViewGroup
+import android.view.View
+import android.graphics.drawable.GradientDrawable
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.ffmpeg.FFmpeg
@@ -41,85 +46,169 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = Color.rgb(12, 27, 49)
+        window.navigationBarColor = Color.rgb(247, 249, 252)
+        val bg = Color.rgb(247, 249, 252)
+        val muted = Color.rgb(105, 120, 143)
+        fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+        fun shape(color: Int, radius: Int = 18, stroke: Int = Color.TRANSPARENT): GradientDrawable =
+            GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(radius).toFloat()
+                if (stroke != Color.TRANSPARENT) setStroke(dp(1), stroke)
+            }
+        fun label(text: String, size: Float = 14f): TextView = TextView(this).apply {
+            this.text = text
+            textSize = size
+            setTextColor(navy)
+            setPadding(dp(2), dp(5), dp(2), dp(5))
+        }
+        fun section(text: String): TextView = label(text, 16f).apply {
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(8), 0, dp(7))
+        }
+        fun card(): LinearLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = shape(Color.WHITE, 20, Color.rgb(230, 236, 244))
+            setPadding(dp(18), dp(14), dp(18), dp(17))
+            val lp = LinearLayout.LayoutParams(-1, -2)
+            lp.bottomMargin = dp(14)
+            layoutParams = lp
+        }
+        fun addCard(root: LinearLayout, item: LinearLayout) {
+            root.addView(item, item.layoutParams ?: LinearLayout.LayoutParams(-1, -2))
+        }
+        fun choice(items: List<String>): Spinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, items)
+            background = shape(Color.rgb(245, 248, 252), 12)
+            setPadding(dp(12), dp(6), dp(8), dp(6))
+            minimumHeight = dp(48)
+        }
+        fun action(text: String, primary: Boolean, onTap: () -> Unit): Button =
+            Button(this).apply {
+                this.text = text
+                textSize = 14f
+                isAllCaps = false
+                setTextColor(if (primary) Color.WHITE else navy)
+                background = shape(if (primary) navy else Color.rgb(232, 240, 247), 14)
+                setOnClickListener { onTap() }
+            }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 44, 28, 20)
-            setBackgroundColor(Color.rgb(248, 250, 253))
+            setPadding(dp(18), dp(20), dp(18), dp(28))
+            setBackgroundColor(bg)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
-        fun label(text: String, size: Float = 15f): TextView = TextView(this).apply {
-            this.text = text; textSize = size; setTextColor(navy); setPadding(0, 8, 0, 8)
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(15, 35, 63), Color.rgb(33, 74, 113))).apply {
+                cornerRadius = dp(24).toFloat()
+            }
+            setPadding(dp(21), dp(22), dp(21), dp(22))
         }
-        root.addView(label("MiniTube", 30f))
-        root.addView(label("تنزيل الفيديو أو الصوت من رابط مسموح لك بحفظه"))
-        url = EditText(this).apply { hint = "الصق رابط الفيديو هنا"; setSingleLine(true); textDirection = ViewGroup.TEXT_DIRECTION_LTR }
-        root.addView(url, LinearLayout.LayoutParams(-1, -2))
-        root.addView(label("نطاق التنزيل"))
-        scope = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("فيديو واحد", "قائمة تشغيل كاملة (Playlist)")) }
-        root.addView(scope)
-        root.addView(label("اختر نوع التنزيل"))
-        mode = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("فيديو", "صوت فقط"))
+        hero.addView(label("MiniTube", 30f).apply {
+            setTextColor(Color.WHITE)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        })
+        hero.addView(label("حمّل فيديوهاتك وصوتياتك في خطوات بسيطة", 13f).apply {
+            setTextColor(Color.rgb(202, 224, 239))
+        })
+        addCard(root, hero)
+        val linkCard = card()
+        linkCard.addView(section("رابط المحتوى"))
+        url = EditText(this).apply {
+            hint = "الصق رابط يوتيوب أو قائمة تشغيل"
+            textSize = 14f
+            setSingleLine(true)
+            textDirection = View.TEXT_DIRECTION_LTR
+            background = shape(Color.rgb(245, 248, 252), 12)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
         }
-        root.addView(mode)
+        linkCard.addView(url, LinearLayout.LayoutParams(-1, dp(52)))
+        val paste = action("لصق الرابط", false) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()
+            if (!text.isNullOrBlank()) url.setText(text)
+            else Toast.makeText(this, "الحافظة فارغة", Toast.LENGTH_SHORT).show()
+        }
+        linkCard.addView(paste)
+        linkCard.addView(section("نطاق التنزيل"))
+        scope = choice(listOf("فيديو واحد", "قائمة تشغيل كاملة (Playlist)"))
+        linkCard.addView(scope)
+        addCard(root, linkCard)
+        val formatCard = card()
+        formatCard.addView(section("اختر نوع الملف"))
+        mode = choice(listOf("فيديو", "صوت فقط"))
+        formatCard.addView(mode)
         videoSettings = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         videoSettings.addView(label("دقة الفيديو"))
-        quality = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("360p", "720p", "1080p", "2160p (4K)"))
-        }
+        quality = choice(listOf("360p", "720p", "1080p", "2160p (4K)"))
+        quality.setSelection(1)
         videoSettings.addView(quality)
-        videoSettings.addView(label("صيغة الفيديو"))
-        videoFormat = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("MP4", "MKV"))
-        }
+        videoSettings.addView(label("الصيغة"))
+        videoFormat = choice(listOf("MP4", "MKV"))
         videoSettings.addView(videoFormat)
-        root.addView(videoSettings)
-        audioSettings = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = android.view.View.GONE }
+        formatCard.addView(videoSettings)
+        audioSettings = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
         audioSettings.addView(label("صيغة الصوت"))
-        audioFormat = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("MP3", "M4A"))
-        }
+        audioFormat = choice(listOf("MP3", "M4A"))
         audioSettings.addView(audioFormat)
-        audioSettings.addView(label("جودة الصوت (معدل البت المستهدف)"))
-        audioBitrate = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("128 kbps", "192 kbps", "320 kbps"))
-        }
+        audioSettings.addView(label("الجودة المستهدفة"))
+        audioBitrate = choice(listOf("128 kbps", "192 kbps", "320 kbps"))
         audioSettings.addView(audioBitrate)
-        root.addView(audioSettings)
+        formatCard.addView(audioSettings)
         mode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                audioSettings.visibility = if (position == 1) android.view.View.VISIBLE else android.view.View.GONE
-                videoSettings.visibility = if (position == 0) android.view.View.VISIBLE else android.view.View.GONE
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                videoSettings.visibility = if (position == 0) View.VISIBLE else View.GONE
+                audioSettings.visibility = if (position == 1) View.VISIBLE else View.GONE
             }
         }
-        button = Button(this).apply { text = "تنزيل"; setTextColor(Color.WHITE); setBackgroundColor(blue); setOnClickListener { download() } }
-        root.addView(button, LinearLayout.LayoutParams(-1, -2))
-        cancelButton = Button(this).apply {
-            text = "إلغاء التنزيل"
-            isEnabled = false
-            setOnClickListener {
-                canceled = true
-                isEnabled = false
-                status.text = "جارٍ إيقاف التنزيل..."
-                activeProcessId?.let { id -> thread { YoutubeDL.getInstance().destroyProcessById(id) } }
+        addCard(root, formatCard)
+        val controls = card()
+        controls.addView(section("التحكم في التنزيل"))
+        button = action("↓ بدء التنزيل", true) { download() }
+        controls.addView(button, LinearLayout.LayoutParams(-1, dp(54)))
+        cancelButton = action("إلغاء التنزيل", false) {
+            canceled = true
+            cancelButton.isEnabled = false
+            status.text = "جارٍ إيقاف التنزيل..."
+            activeProcessId?.let { id ->
+                thread { YoutubeDL.getInstance().destroyProcessById(id) }
             }
         }
-        root.addView(cancelButton, LinearLayout.LayoutParams(-1, -2))
-        val filesButton = Button(this).apply {
-            text = "الملفات التي تم تنزيلها"
-            setOnClickListener { openDownloadFolder() }
+        cancelButton.isEnabled = false
+        controls.addView(cancelButton, LinearLayout.LayoutParams(-1, dp(48)))
+        addCard(root, controls)
+        val progressCard = card()
+        progressCard.addView(section("حالة التنزيل"))
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progressTintList = android.content.res.ColorStateList.valueOf(blue)
         }
-        root.addView(filesButton, LinearLayout.LayoutParams(-1, -2))
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
-        root.addView(progress, LinearLayout.LayoutParams(-1, -2))
-        progressText = label("لم يبدأ التنزيل")
-        root.addView(progressText)
-        status = label("جارٍ تجهيز أداة التنزيل...")
-        root.addView(status)
-        root.addView(label("مكان الحفظ: Downloads/MiniTube"))
-        root.addView(label("عند اختيار Playlist يتم تنزيل عناصر القائمة المسموح بها. احتفظ بالتطبيق مفتوحًا أثناء التنزيل."))
-        root.addView(label("نزّل الملفات التي تملك حق حفظها فقط. بعض المحتويات قد لا تكون متاحة."))
-        setContentView(ScrollView(this).apply { addView(root) })
+        progressCard.addView(progress, LinearLayout.LayoutParams(-1, dp(12)))
+        progressText = label("لم يبدأ التنزيل", 16f).apply { setTypeface(null, android.graphics.Typeface.BOLD) }
+        progressCard.addView(progressText)
+        status = label("جارٍ تجهيز المحرك...", 12f).apply { setTextColor(muted) }
+        progressCard.addView(status)
+        addCard(root, progressCard)
+        val filesCard = card()
+        filesCard.addView(section("ملفاتي"))
+        filesCard.addView(label("كل الملفات تُحفظ في Downloads/MiniTube", 12f).apply { setTextColor(muted) })
+        filesCard.addView(action("فتح مجلد التنزيلات ↗", false) { openDownloadFolder() },
+            LinearLayout.LayoutParams(-1, dp(50)))
+        addCard(root, filesCard)
+        root.addView(label("للمحتوى الذي تملك حق تنزيله فقط. يُفضّل إبقاء التطبيق مفتوحًا أثناء التحميل.", 11f).apply {
+            setTextColor(muted)
+        })
+        setContentView(ScrollView(this).apply {
+            fillViewport = true
+            addView(root)
+        })
         if (intent?.action == Intent.ACTION_SEND) url.setText(intent.getStringExtra(Intent.EXTRA_TEXT) ?: "")
         button.isEnabled = false
         thread {
