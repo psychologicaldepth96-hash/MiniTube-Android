@@ -4,7 +4,6 @@ import android.app.*
 import android.content.*
 import android.os.*
 import android.provider.MediaStore
-import androidx.annotation.Keep
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.ffmpeg.FFmpeg
