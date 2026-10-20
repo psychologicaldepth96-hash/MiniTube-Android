@@ -19,6 +19,7 @@ class MainActivity : Activity() {
     private lateinit var url: EditText
     private lateinit var quality: Spinner
     private lateinit var mode: Spinner
+    private lateinit var scope: Spinner
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private lateinit var button: Button
@@ -40,6 +41,9 @@ class MainActivity : Activity() {
         root.addView(label("تنزيل الفيديو أو الصوت من رابط مسموح لك بحفظه"))
         url = EditText(this).apply { hint = "الصق رابط الفيديو هنا"; setSingleLine(true); textDirection = ViewGroup.TEXT_DIRECTION_LTR }
         root.addView(url, LinearLayout.LayoutParams(-1, -2))
+        root.addView(label("نطاق التنزيل"))
+        scope = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("فيديو واحد", "قائمة تشغيل كاملة (Playlist)")) }
+        root.addView(scope)
         root.addView(label("نوع الملف"))
         mode = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, listOf("فيديو MP4", "صوت MP3")) }
         root.addView(mode)
@@ -53,6 +57,7 @@ class MainActivity : Activity() {
         status = label("جارٍ تجهيز أداة التنزيل...")
         root.addView(status)
         root.addView(label("مكان الحفظ: Downloads/MiniTube"))
+        root.addView(label("عند اختيار Playlist يتم تنزيل عناصر القائمة المسموح بها. احتفظ بالتطبيق مفتوحًا أثناء التنزيل."))
         root.addView(label("نزّل الملفات التي تملك حق حفظها فقط. بعض المحتويات قد لا تكون متاحة."))
         setContentView(ScrollView(this).apply { addView(root) })
         if (intent?.action == Intent.ACTION_SEND) url.setText(intent.getStringExtra(Intent.EXTRA_TEXT) ?: "")
@@ -72,20 +77,27 @@ class MainActivity : Activity() {
     private fun download() {
         if (!initialized) { status.text = "لم تكتمل التهيئة"; return }
         val link = url.text.toString().trim()
-        val allowed = listOf("https://www.youtube.com/", "https://youtube.com/", "https://youtu.be/", "https://m.youtube.com/")
+        val allowed = listOf("https://www.youtube.com/", "https://youtube.com/", "https://youtu.be/", "https://m.youtube.com/", "https://music.youtube.com/")
         if (allowed.none { link.startsWith(it) }) {
             status.text = "أدخل رابط يوتيوب صحيحًا يبدأ بـ https://"; return
         }
         val audio = mode.selectedItemPosition == 1
+        val playlist = scope.selectedItemPosition == 1
         val h = when (quality.selectedItemPosition) { 1 -> 360; 2 -> 1080; 3 -> 2160; else -> 720 }
         button.isEnabled = false; progress.progress = 0; status.text = "جاري بدء التنزيل..."
         thread {
             val temp = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "working_${System.currentTimeMillis()}").apply { mkdirs() }
             try {
                 val request = YoutubeDLRequest(link)
-                request.addOption("--no-playlist")
+                if (playlist) {
+                    request.addOption("--yes-playlist")
+                    request.addOption("--ignore-errors")
+                    request.addOption("--download-archive", File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "playlist_archive.txt").absolutePath)
+                } else {
+                    request.addOption("--no-playlist")
+                }
                 request.addOption("--restrict-filenames")
-                request.addOption("-o", File(temp, "%(title).150B.%(ext)s").absolutePath)
+                request.addOption("-o", File(temp, if (playlist) "%(playlist_index)03d-%(id)s-%(title).100B.%(ext)s" else "%(title).150B.%(ext)s").absolutePath)
                 if (audio) {
                     request.addOption("-x")
                     request.addOption("--audio-format", "mp3")
@@ -98,7 +110,7 @@ class MainActivity : Activity() {
                     runOnUiThread { progress.progress = percent.toInt().coerceIn(0, 100); status.text = "جاري التنزيل ${percent.toInt()}%" }
                 }
                 val files = temp.listFiles()?.filter { it.isFile && (it.extension.lowercase() == if(audio) "mp3" else "mp4") }.orEmpty()
-                if (files.isEmpty()) error("لم يتم إنشاء الملف المطلوب")
+                if (files.isEmpty()) error("لم يتم إنشاء ملفات جديدة؛ ربما تم تنزيلها سابقًا أو تعذر الوصول إليها")
                 var saved = 0
                 for (file in files) {
                     val values = ContentValues().apply {
