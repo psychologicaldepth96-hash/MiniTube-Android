@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.content.Intent
+import android.content.ContentUris
+import android.net.Uri
 import android.widget.*
 import android.view.ViewGroup
 import com.yausername.youtubedl_android.YoutubeDL
@@ -23,6 +25,9 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private lateinit var button: Button
+    private lateinit var cancelButton: Button
+    @Volatile private var canceled = false
+    @Volatile private var activeProcessId: String? = null
     private val navy = Color.rgb(26, 47, 78)
     private val blue = Color.rgb(39, 188, 231)
     private var initialized = false
@@ -52,6 +57,22 @@ class MainActivity : Activity() {
         root.addView(quality)
         button = Button(this).apply { text = "تنزيل"; setTextColor(Color.WHITE); setBackgroundColor(blue); setOnClickListener { download() } }
         root.addView(button, LinearLayout.LayoutParams(-1, -2))
+        cancelButton = Button(this).apply {
+            text = "إلغاء التنزيل"
+            isEnabled = false
+            setOnClickListener {
+                canceled = true
+                isEnabled = false
+                status.text = "جارٍ إيقاف التنزيل..."
+                activeProcessId?.let { id -> thread { YoutubeDL.getInstance().destroyProcessById(id) } }
+            }
+        }
+        root.addView(cancelButton, LinearLayout.LayoutParams(-1, -2))
+        val filesButton = Button(this).apply {
+            text = "الملفات التي تم تنزيلها"
+            setOnClickListener { openDownloadedFiles() }
+        }
+        root.addView(filesButton, LinearLayout.LayoutParams(-1, -2))
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
         root.addView(progress, LinearLayout.LayoutParams(-1, -2))
         status = label("جارٍ تجهيز أداة التنزيل...")
@@ -93,6 +114,10 @@ class MainActivity : Activity() {
         val audio = mode.selectedItemPosition == 1
         val playlist = scope.selectedItemPosition == 1
         val h = when (quality.selectedItemPosition) { 1 -> 360; 2 -> 1080; 3 -> 2160; else -> 720 }
+        canceled = false
+        val processId = "minitube_" + System.currentTimeMillis()
+        activeProcessId = processId
+        cancelButton.isEnabled = true
         button.isEnabled = false; progress.isIndeterminate = true; progress.progress = 0; status.text = if (playlist) "جارٍ قراءة بيانات قائمة التشغيل... قد يستغرق الأمر عدة دقائق" else "جارٍ الاتصال بالفيديو..."
         thread {
             val temp = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "working_${System.currentTimeMillis()}").apply { mkdirs() }
@@ -117,8 +142,9 @@ class MainActivity : Activity() {
                     request.addOption("--merge-output-format", "mp4")
                     request.addOption("--recode-video", "mp4")
                 }
-                YoutubeDL.getInstance().execute(request) { percent, eta, line ->
+                YoutubeDL.getInstance().execute(request, processId) { percent, eta, line ->
                     runOnUiThread {
+                        if (canceled) return@runOnUiThread
                         if (percent >= 0f && percent <= 100f) {
                             progress.isIndeterminate = false
                             progress.progress = percent.toInt().coerceIn(0, 100)
@@ -133,11 +159,13 @@ class MainActivity : Activity() {
                         }
                     }
                 }
+                if (canceled) throw InterruptedException("ألغيت عملية التنزيل")
                 val files = temp.listFiles()?.filter { it.isFile && (it.extension.lowercase() == if(audio) "mp3" else "mp4") }.orEmpty()
                 if (files.isEmpty()) error("لم يتم إنشاء ملفات جديدة؛ ربما تم تنزيلها سابقًا أو تعذر الوصول إليها")
                 runOnUiThread { progress.isIndeterminate = true; status.text = "جارٍ نقل الملفات إلى مجلد التنزيلات..." }
                 var saved = 0
                 for (file in files) {
+                    if (canceled) throw InterruptedException("ألغيت عملية التنزيل")
                     val values = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
                         put(MediaStore.MediaColumns.MIME_TYPE, if(audio) "audio/mpeg" else "video/mp4")
@@ -146,7 +174,17 @@ class MainActivity : Activity() {
                     val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
                     val uri = contentResolver.insert(collection, values) ?: error("فشل إنشاء الملف في التنزيلات")
                     try {
-                        contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("فشل فتح ملف الحفظ")
+                        contentResolver.openOutputStream(uri)?.use { output ->
+                            file.inputStream().use { input ->
+                                val buffer = ByteArray(65536)
+                                while (true) {
+                                    if (canceled) throw InterruptedException("ألغيت عملية التنزيل")
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    output.write(buffer, 0, count)
+                                }
+                            }
+                        } ?: error("فشل فتح ملف الحفظ")
                         saved++
                     } catch (e: Exception) { contentResolver.delete(uri, null, null); throw e }
                 }
@@ -154,6 +192,7 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     progress.isIndeterminate = false
+                    if (canceled) { status.text = "تم إلغاء التنزيل"; return@runOnUiThread }
                     val detail = e.localizedMessage ?: "خطأ غير معروف"
                     status.text = if (detail.contains("403") || detail.contains("Forbidden", true))
                         "رفض يوتيوب رابط التحميل (403). حدث yt-dlp وأعد المحاولة، وقد لا يتوفر هذا الفيديو: $detail"
@@ -161,8 +200,48 @@ class MainActivity : Activity() {
                 }
             } finally {
                 temp.deleteRecursively()
-                runOnUiThread { button.isEnabled = true }
+                activeProcessId = null
+                runOnUiThread { button.isEnabled = true; cancelButton.isEnabled = false }
             }
         }
     }
+    private fun openDownloadedFiles() {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val names = mutableListOf<String>()
+        val uris = mutableListOf<Uri>()
+        val projection = arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME)
+        val selection = MediaStore.Downloads.RELATIVE_PATH + " LIKE ?"
+        val args = arrayOf(Environment.DIRECTORY_DOWNLOADS + "/MiniTube/%")
+        try {
+            contentResolver.query(collection, projection, selection, args, MediaStore.Downloads.DATE_ADDED + " DESC")?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+                val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+                while (cursor.moveToNext()) {
+                    names.add(cursor.getString(nameIndex))
+                    uris.add(ContentUris.withAppendedId(collection, cursor.getLong(idIndex)))
+                }
+            }
+            if (names.isEmpty()) {
+                Toast.makeText(this, "لا توجد ملفات محفوظة بعد", Toast.LENGTH_LONG).show()
+                return
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("ملفاتي - MiniTube")
+                .setItems(names.toTypedArray()) { _, which ->
+                    val fileUri = uris[which]
+                    val mime = if (names[which].endsWith(".mp3", true)) "audio/mpeg" else "video/mp4"
+                    val view = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(fileUri, mime)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try { startActivity(Intent.createChooser(view, "فتح الملف باستخدام")) }
+                    catch (e: Exception) { Toast.makeText(this, "لا يوجد تطبيق لفتح هذا الملف", Toast.LENGTH_LONG).show() }
+                }
+                .setNegativeButton("إغلاق", null)
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "تعذر عرض الملفات: " + e.localizedMessage, Toast.LENGTH_LONG).show()
+        }
+    }
+
 }
