@@ -11,7 +11,7 @@ import android.widget.*
 import android.view.ViewGroup
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.yausername.youtubedl_android.FFmpeg
+import com.yausername.ffmpeg.FFmpeg
 import java.io.File
 import kotlin.concurrent.thread
 
