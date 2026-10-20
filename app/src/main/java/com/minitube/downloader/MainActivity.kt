@@ -111,14 +111,14 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             setTypeface(null, android.graphics.Typeface.BOLD)
         })
-        hero.addView(label("حمّل فيديوهاتك وصوتياتك في خطوات بسيطة", 13f).apply {
+        hero.addView(label("تنزيل المحتوى المسموح به من منصات التواصل", 13f).apply {
             setTextColor(Color.rgb(202, 224, 239))
         })
         addCard(root, hero)
         val linkCard = card()
         linkCard.addView(section("رابط المحتوى"))
         url = EditText(this).apply {
-            hint = "الصق رابط يوتيوب أو قائمة تشغيل"
+            hint = "الصق رابط فيديو من منصة اجتماعية"
             textSize = 14f
             setSingleLine(true)
             textDirection = View.TEXT_DIRECTION_LTR
@@ -133,6 +133,7 @@ class MainActivity : Activity() {
             else Toast.makeText(this, "الحافظة فارغة", Toast.LENGTH_SHORT).show()
         }
         linkCard.addView(paste)
+        linkCard.addView(label("YouTube • Facebook • Instagram • X • TikTok • Snapchat وغيرها", 11f))
         linkCard.addView(section("نطاق التنزيل"))
         scope = choice(listOf("فيديو واحد", "قائمة تشغيل كاملة (Playlist)"))
         linkCard.addView(scope)
@@ -235,12 +236,24 @@ class MainActivity : Activity() {
     private fun download() {
         if (!initialized) { status.text = "لم تكتمل التهيئة"; return }
         val link = url.text.toString().trim()
-        val allowed = listOf("https://www.youtube.com/", "https://youtube.com/", "https://youtu.be/", "https://m.youtube.com/", "https://music.youtube.com/")
-        if (allowed.none { link.startsWith(it) }) {
-            status.text = "أدخل رابط يوتيوب صحيحًا يبدأ بـ https://"; return
+        val uri = try { Uri.parse(link) } catch (_: Exception) { null }
+        val host = uri?.host?.lowercase()?.removePrefix("www.") ?: ""
+        val supportedDomains = listOf(
+            "youtube.com", "youtu.be", "facebook.com", "fb.watch", "instagram.com",
+            "x.com", "twitter.com", "tiktok.com", "snapchat.com", "pinterest.com",
+            "reddit.com", "vimeo.com", "dailymotion.com", "threads.net"
+        )
+        val supported = supportedDomains.any { host == it || host.endsWith("." + it) }
+        if (uri?.scheme != "https" || !supported) {
+            status.text = "أدخل رابط HTTPS من منصة مدعومة مثل يوتيوب، فيسبوك، إنستجرام، X أو سناب شات"
+            return
         }
         val audio = mode.selectedItemPosition == 1
         val playlist = scope.selectedItemPosition == 1
+        if (playlist && host != "youtube.com" && host != "music.youtube.com") {
+            status.text = "القوائم الكاملة متاحة حاليًا ليوتيوب فقط؛ اختر فيديو واحد لهذا الرابط"
+            return
+        }
         val h = when (quality.selectedItemPosition) { 0 -> 360; 1 -> 720; 2 -> 1080; else -> 2160 }
         val audioExt = if (audioFormat.selectedItemPosition == 0) "mp3" else "m4a"
         val videoExt = if (videoFormat.selectedItemPosition == 0) "mp4" else "mkv"
