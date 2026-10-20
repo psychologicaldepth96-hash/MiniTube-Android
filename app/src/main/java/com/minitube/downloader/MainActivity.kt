@@ -66,8 +66,17 @@ class MainActivity : Activity() {
             try {
                 YoutubeDL.getInstance().init(applicationContext)
                 FFmpeg.getInstance().init(applicationContext)
+                runOnUiThread { status.text = "جارٍ تحديث محرك yt-dlp لتوافق يوتيوب..." }
+                var updateMessage = "المحرك جاهز"
+                try {
+                    YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
+                    updateMessage = "تم التحقق من تحديث yt-dlp"
+                } catch (updateError: Exception) {
+                    updateMessage = "تعذر تحديث yt-dlp؛ قد تفشل بعض روابط يوتيوب. تحقق من الإنترنت وأعد تشغيل التطبيق."
+                }
                 initialized = true
-                runOnUiThread { status.text = "جاهز للتنزيل"; button.isEnabled = true }
+                val message = updateMessage
+                runOnUiThread { status.text = message; button.isEnabled = true }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "خطأ في التهيئة: ${e.localizedMessage}" }
             }
@@ -97,7 +106,7 @@ class MainActivity : Activity() {
                 }
                 request.addOption("--restrict-filenames")
                 request.addOption("--socket-timeout", "20")
-                request.addOption("--retries", "3")
+                                request.addOption("--retries", "3")
                 request.addOption("--fragment-retries", "3")
                 request.addOption("-o", File(temp, if (playlist) "%(playlist_index)03d-%(id)s-%(title).100B.%(ext)s" else "%(title).150B.%(ext)s").absolutePath)
                 if (audio) {
@@ -143,7 +152,13 @@ class MainActivity : Activity() {
                 }
                 runOnUiThread { progress.isIndeterminate = false; status.text = "تم حفظ $saved ملف في Downloads/MiniTube"; progress.progress = 100 }
             } catch (e: Exception) {
-                runOnUiThread { progress.isIndeterminate = false; status.text = "تعذر التنزيل: ${e.localizedMessage}" }
+                runOnUiThread {
+                    progress.isIndeterminate = false
+                    val detail = e.localizedMessage ?: "خطأ غير معروف"
+                    status.text = if (detail.contains("403") || detail.contains("Forbidden", true))
+                        "رفض يوتيوب رابط التحميل (403). حدث yt-dlp وأعد المحاولة، وقد لا يتوفر هذا الفيديو: $detail"
+                    else "تعذر التنزيل: $detail"
+                }
             } finally {
                 temp.deleteRecursively()
                 runOnUiThread { button.isEnabled = true }
