@@ -94,7 +94,7 @@ class MainActivity : Activity() {
                     request.addOption("--merge-output-format", "mp4")
                     request.addOption("--recode-video", "mp4")
                 }
-                YoutubeDL.getInstance().execute(request) { percent, _ ->
+                YoutubeDL.getInstance().execute(request) { percent, _, _ ->
                     runOnUiThread { progress.progress = percent.toInt().coerceIn(0, 100); status.text = "جاري التنزيل ${percent.toInt()}%" }
                 }
                 val files = temp.listFiles()?.filter { it.isFile && (it.extension.lowercase() == if(audio) "mp3" else "mp4") }.orEmpty()
