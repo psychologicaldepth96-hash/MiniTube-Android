@@ -217,7 +217,7 @@ class MainActivity : Activity() {
                 runOnUiThread { status.text = "جارٍ تحديث محرك yt-dlp لتوافق يوتيوب..." }
                 var updateMessage = "المحرك جاهز"
                 try {
-                    YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
+                    YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.STABLE)
                     updateMessage = "تم التحقق من تحديث yt-dlp"
                 } catch (updateError: Exception) {
                     updateMessage = "تعذر تحديث yt-dlp؛ قد تفشل بعض روابط يوتيوب. تحقق من الإنترنت وأعد تشغيل التطبيق."
@@ -234,21 +234,13 @@ class MainActivity : Activity() {
     private fun download() {
         if (!initialized) { status.text = "لم تكتمل التهيئة"; return }
         val link = url.text.toString().trim()
-        val uri = try { Uri.parse(link) } catch (_: Exception) { null }
-        val host = uri?.host?.lowercase()?.removePrefix("www.") ?: ""
-        val supportedDomains = listOf(
-            "youtube.com", "youtu.be", "facebook.com", "fb.watch", "instagram.com",
-            "x.com", "twitter.com", "tiktok.com", "snapchat.com", "pinterest.com",
-            "reddit.com", "vimeo.com", "dailymotion.com", "threads.net"
-        )
-        val supported = supportedDomains.any { host == it || host.endsWith("." + it) }
-        if (uri?.scheme != "https" || !supported) {
-            status.text = "أدخل رابط HTTPS من منصة مدعومة مثل يوتيوب، فيسبوك، إنستجرام، X أو سناب شات"
+        if (!SafeMediaUrl.isAllowed(link)) {
+            status.text = "رابط غير صالح أو غير مدعوم. استخدم HTTPS من منصة موثوقة."
             return
         }
         val audio = mode.selectedItemPosition == 1
         val playlist = scope.selectedItemPosition == 1
-        if (playlist && host != "youtube.com" && host != "music.youtube.com") {
+        if (playlist && !SafeMediaUrl.isYoutube(link)) {
             status.text = "القوائم الكاملة متاحة حاليًا ليوتيوب فقط؛ اختر فيديو واحد لهذا الرابط"
             return
         }
