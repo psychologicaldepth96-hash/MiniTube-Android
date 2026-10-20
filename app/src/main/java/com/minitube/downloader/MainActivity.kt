@@ -252,94 +252,142 @@ class MainActivity : Activity() {
         cancelButton.isEnabled = true
         progressText.text = "جارٍ تجهيز التنزيل..." 
         button.isEnabled = false; progress.isIndeterminate = true; progress.progress = 0; status.text = if (playlist) "جارٍ قراءة بيانات قائمة التشغيل... قد يستغرق الأمر عدة دقائق" else "جارٍ الاتصال بالفيديو..."
+
         thread {
-            val temp = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "working_${System.currentTimeMillis()}").apply { mkdirs() }
+            val base = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            var saved = 0
+            var failed = 0
             try {
-                val request = YoutubeDLRequest(link)
-                if (playlist) {
-                    request.addOption("--yes-playlist")
-                    request.addOption("--ignore-errors")
-                } else {
-                    request.addOption("--no-playlist")
-                }
-                request.addOption("--restrict-filenames")
-                request.addOption("--socket-timeout", "20")
-                                request.addOption("--retries", "3")
-                request.addOption("--fragment-retries", "3")
-                request.addOption("-o", File(temp, if (playlist) "%(playlist_index)03d-%(id)s-%(title).100B.%(ext)s" else "%(title).150B.%(ext)s").absolutePath)
-                if (audio) {
-                    request.addOption("-x")
-                    request.addOption("--audio-format", audioExt)
-                    request.addOption("--audio-quality", bitrate)
-                } else {
-                    request.addOption("-f", "bv*[height<=${h}]+ba/b[height<=${h}]/best")
-                    request.addOption("--merge-output-format", videoExt)
-                    request.addOption("--recode-video", videoExt)
-                }
-                YoutubeDL.getInstance().execute(request, processId) { percent, eta, line ->
+                // First obtain the playlist index without downloading its media.
+                val links: List<String> = if (playlist) {
+                    val index = YoutubeDLRequest(link)
+                    index.addOption("--flat-playlist")
+                    index.addOption("--yes-playlist")
+                    index.addOption("--ignore-errors")
+                    index.addOption("--print", "%(id)s")
+                    val result = YoutubeDL.getInstance().execute(index, processId)
+                    val ids = result.out.lines().map { it.trim() }
+                        .filter { Regex("^[A-Za-z0-9_-]{11}$").matches(it) }
+                        .distinct()
+                    if (canceled) throw InterruptedException("تم إلغاء التنزيل")
+                    if (ids.isEmpty()) error("تعذر قراءة عناصر قائمة التشغيل")
+                    ids.map { "https://www.youtube.com/watch?v=" + it }
+                } else listOf(link)
+
+                for ((position, videoLink) in links.withIndex()) {
+                    if (canceled) throw InterruptedException("تم إلغاء التنزيل")
+                    val temp = File(base, "item_" + System.currentTimeMillis() + "_" + position).apply { mkdirs() }
+                    val current = position + 1
+                    val total = links.size
                     runOnUiThread {
-                        if (canceled) return@runOnUiThread
-                        if (percent >= 0f && percent <= 100f) {
-                            progress.isIndeterminate = false
-                            progress.progress = percent.toInt().coerceIn(0, 100)
-                            status.text = if (playlist)
-                                "جارٍ تنزيل عناصر القائمة: ${percent.toInt()}% من العنصر الحالي"
-                            else "جارٍ تنزيل الفيديو: ${percent.toInt()}%"
-                        } else {
-                            progress.isIndeterminate = true
-                            progressText.text = "جارٍ معالجة البيانات؛ الوقت المتبقي غير متاح"
-                            status.text = if (playlist)
-                                "جارٍ قراءة القائمة أو معالجة الملفات... يرجى الانتظار"
-                            else "جارٍ تجهيز أو معالجة الملف... يرجى الانتظار"
-                        }
+                        progress.isIndeterminate = true
+                        progressText.text = "العنصر " + current + " من " + total + " • تم حفظ " + saved
+                        status.text = "جارٍ تجهيز العنصر " + current + " من " + total
                     }
-                }
-                if (canceled) throw InterruptedException("ألغيت عملية التنزيل")
-                val files = temp.listFiles()?.filter { it.isFile && (it.extension.lowercase() == finalExtension) }.orEmpty()
-                if (files.isEmpty()) error("لم يتم إنشاء ملفات جديدة؛ ربما تم تنزيلها سابقًا أو تعذر الوصول إليها")
-                runOnUiThread { progress.isIndeterminate = true; status.text = "جارٍ نقل الملفات إلى مجلد التنزيلات..." }
-                var saved = 0
-                for (file in files) {
-                    if (canceled) throw InterruptedException("ألغيت عملية التنزيل")
-                    val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
-                        put(MediaStore.MediaColumns.MIME_TYPE, when (finalExtension) { "mp3" -> "audio/mpeg"; "m4a" -> "audio/mp4"; "mkv" -> "video/x-matroska"; else -> "video/mp4" })
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/MiniTube")
-                    }
-                    val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                    val uri = contentResolver.insert(collection, values) ?: error("فشل إنشاء الملف في التنزيلات")
                     try {
-                        contentResolver.openOutputStream(uri)?.use { output ->
-                            file.inputStream().use { input ->
-                                val buffer = ByteArray(65536)
-                                while (true) {
-                                    if (canceled) throw InterruptedException("ألغيت عملية التنزيل")
-                                    val count = input.read(buffer)
-                                    if (count < 0) break
-                                    output.write(buffer, 0, count)
+                        val request = YoutubeDLRequest(videoLink)
+                        request.addOption("--no-playlist")
+                        request.addOption("--restrict-filenames")
+                        request.addOption("--socket-timeout", "20")
+                        request.addOption("--retries", "3")
+                        request.addOption("--fragment-retries", "3")
+                        request.addOption("-o", File(temp, "%(id)s-%(title).100B.%(ext)s").absolutePath)
+                        if (audio) {
+                            request.addOption("-x")
+                            request.addOption("--audio-format", audioExt)
+                            request.addOption("--audio-quality", bitrate)
+                        } else {
+                            request.addOption("-f", "bv*[height<=" + h + "]+ba/b[height<=" + h + "]/best")
+                            request.addOption("--merge-output-format", videoExt)
+                            request.addOption("--recode-video", videoExt)
+                        }
+                        YoutubeDL.getInstance().execute(request, processId) { percent, eta, line ->
+                            runOnUiThread {
+                                if (canceled) return@runOnUiThread
+                                if (percent in 0f..100f) {
+                                    progress.isIndeterminate = false
+                                    progress.progress = percent.toInt().coerceIn(0, 100)
+                                    progressText.text = "العنصر " + current + "/" + total + " • " + percent.toInt() +
+                                        "% • " + (if (eta >= 0) "متبقي " + eta + " ثانية" else "حساب الوقت...")
+                                } else {
+                                    progress.isIndeterminate = true
+                                    progressText.text = "العنصر " + current + "/" + total + " • جارٍ المعالجة"
                                 }
                             }
-                        } ?: error("فشل فتح ملف الحفظ")
-                        saved++
-                    } catch (e: Exception) { contentResolver.delete(uri, null, null); throw e }
+                        }
+                        if (canceled) throw InterruptedException("تم إلغاء التنزيل")
+                        val outputFiles = temp.listFiles()?.filter {
+                            it.isFile && it.extension.equals(finalExtension, ignoreCase = true)
+                        }.orEmpty()
+                        if (outputFiles.isEmpty()) error("لم يتم العثور على الملف بعد التحويل")
+                        for (file in outputFiles) {
+                            if (canceled) throw InterruptedException("تم إلغاء التنزيل")
+                            val values = ContentValues().apply {
+                                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                                put(MediaStore.MediaColumns.MIME_TYPE, when (finalExtension) {
+                                    "mp3" -> "audio/mpeg"
+                                    "m4a" -> "audio/mp4"
+                                    "mkv" -> "video/x-matroska"
+                                    else -> "video/mp4"
+                                })
+                                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/MiniTube")
+                                put(MediaStore.MediaColumns.IS_PENDING, 1)
+                            }
+                            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                                ?: error("تعذر إنشاء ملف التنزيل")
+                            try {
+                                contentResolver.openOutputStream(uri)?.use { output ->
+                                    file.inputStream().use { input ->
+                                        val buffer = ByteArray(65536)
+                                        while (true) {
+                                            if (canceled) throw InterruptedException("تم إلغاء التنزيل")
+                                            val count = input.read(buffer)
+                                            if (count < 0) break
+                                            output.write(buffer, 0, count)
+                                        }
+                                    }
+                                } ?: error("تعذر فتح ملف الحفظ")
+                                contentResolver.update(uri, ContentValues().apply {
+                                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                                }, null, null)
+                                saved++
+                            } catch (e: Exception) {
+                                contentResolver.delete(uri, null, null)
+                                throw e
+                            }
+                        }
+                        runOnUiThread {
+                            status.text = "تم حفظ " + saved + " من " + total + " في Downloads/MiniTube"
+                            progressText.text = "اكتمل العنصر " + current + " من " + total
+                        }
+                    } catch (e: Exception) {
+                        if (canceled || e is InterruptedException) throw e
+                        failed++
+                        runOnUiThread { status.text = "تعذر تنزيل العنصر " + current + "؛ جاري الانتقال للتالي" }
+                    } finally {
+                        temp.deleteRecursively()
+                    }
                 }
-                runOnUiThread { progress.isIndeterminate = false; status.text = "تم حفظ $saved ملف في Downloads/MiniTube"; progress.progress = 100; progressText.text = "100% مكتمل" }
+                runOnUiThread {
+                    progress.isIndeterminate = false
+                    progress.progress = 100
+                    progressText.text = "تم الانتهاء من القائمة"
+                    status.text = "تم حفظ " + saved + " ملف، وتعذر " + failed + " ملف"
+                }
             } catch (e: Exception) {
                 runOnUiThread {
                     progress.isIndeterminate = false
-                    if (canceled) { status.text = "تم إلغاء التنزيل"; return@runOnUiThread }
-                    val detail = e.localizedMessage ?: "خطأ غير معروف"
-                    status.text = if (detail.contains("403") || detail.contains("Forbidden", true))
-                        "رفض يوتيوب رابط التحميل (403). حدث yt-dlp وأعد المحاولة، وقد لا يتوفر هذا الفيديو: $detail"
-                    else "تعذر التنزيل: $detail"
+                    status.text = if (canceled) "تم الإلغاء. الملفات المحفوظة: " + saved
+                    else "تعذر إكمال القائمة: " + (e.localizedMessage ?: "خطأ غير معروف") +
+                        " • محفوظ: " + saved
                 }
             } finally {
-                temp.deleteRecursively()
                 activeProcessId = null
                 runOnUiThread { button.isEnabled = true; cancelButton.isEnabled = false }
             }
         }
     }
+
     private fun openDownloadFolder() {
         // Android's file picker can open near the folder; the user chooses the folder in the system UI.
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
