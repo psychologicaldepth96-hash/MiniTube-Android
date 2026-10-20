@@ -15,7 +15,7 @@ object SafeMediaUrl {
             val uri = Uri.parse(value)
             val host = uri.host?.lowercase() ?: return false
             uri.scheme.equals("https", true) &&
-                uri.userInfo == null && uri.port == -1 &&
+                uri.encodedAuthority?.contains("@") != true && uri.port == -1 &&
                 domains.any { host == it || host.endsWith("." + it) }
         } catch (_: Exception) { false }
     }
