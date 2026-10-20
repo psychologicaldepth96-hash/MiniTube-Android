@@ -206,7 +206,7 @@ class MainActivity : Activity() {
             setTextColor(muted)
         })
         setContentView(ScrollView(this).apply {
-            fillViewport = true
+            isFillViewport = true
             addView(root)
         })
         if (intent?.action == Intent.ACTION_SEND) url.setText(intent.getStringExtra(Intent.EXTRA_TEXT) ?: "")
