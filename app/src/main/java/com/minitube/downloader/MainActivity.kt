@@ -84,7 +84,7 @@ class MainActivity : Activity() {
         val audio = mode.selectedItemPosition == 1
         val playlist = scope.selectedItemPosition == 1
         val h = when (quality.selectedItemPosition) { 1 -> 360; 2 -> 1080; 3 -> 2160; else -> 720 }
-        button.isEnabled = false; progress.progress = 0; status.text = "جاري بدء التنزيل..."
+        button.isEnabled = false; progress.isIndeterminate = true; progress.progress = 0; status.text = if (playlist) "جارٍ قراءة بيانات قائمة التشغيل... قد يستغرق الأمر عدة دقائق" else "جارٍ الاتصال بالفيديو..."
         thread {
             val temp = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "working_${System.currentTimeMillis()}").apply { mkdirs() }
             try {
@@ -92,11 +92,13 @@ class MainActivity : Activity() {
                 if (playlist) {
                     request.addOption("--yes-playlist")
                     request.addOption("--ignore-errors")
-                    request.addOption("--download-archive", File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "playlist_archive.txt").absolutePath)
                 } else {
                     request.addOption("--no-playlist")
                 }
                 request.addOption("--restrict-filenames")
+                request.addOption("--socket-timeout", "20")
+                request.addOption("--retries", "3")
+                request.addOption("--fragment-retries", "3")
                 request.addOption("-o", File(temp, if (playlist) "%(playlist_index)03d-%(id)s-%(title).100B.%(ext)s" else "%(title).150B.%(ext)s").absolutePath)
                 if (audio) {
                     request.addOption("-x")
@@ -106,11 +108,25 @@ class MainActivity : Activity() {
                     request.addOption("--merge-output-format", "mp4")
                     request.addOption("--recode-video", "mp4")
                 }
-                YoutubeDL.getInstance().execute(request) { percent, _, _ ->
-                    runOnUiThread { progress.progress = percent.toInt().coerceIn(0, 100); status.text = "جاري التنزيل ${percent.toInt()}%" }
+                YoutubeDL.getInstance().execute(request) { percent, eta, line ->
+                    runOnUiThread {
+                        if (percent >= 0f && percent <= 100f) {
+                            progress.isIndeterminate = false
+                            progress.progress = percent.toInt().coerceIn(0, 100)
+                            status.text = if (playlist)
+                                "جارٍ تنزيل عناصر القائمة: ${percent.toInt()}% من العنصر الحالي"
+                            else "جارٍ تنزيل الفيديو: ${percent.toInt()}%"
+                        } else {
+                            progress.isIndeterminate = true
+                            status.text = if (playlist)
+                                "جارٍ قراءة القائمة أو معالجة الملفات... يرجى الانتظار"
+                            else "جارٍ تجهيز أو معالجة الملف... يرجى الانتظار"
+                        }
+                    }
                 }
                 val files = temp.listFiles()?.filter { it.isFile && (it.extension.lowercase() == if(audio) "mp3" else "mp4") }.orEmpty()
                 if (files.isEmpty()) error("لم يتم إنشاء ملفات جديدة؛ ربما تم تنزيلها سابقًا أو تعذر الوصول إليها")
+                runOnUiThread { progress.isIndeterminate = true; status.text = "جارٍ نقل الملفات إلى مجلد التنزيلات..." }
                 var saved = 0
                 for (file in files) {
                     val values = ContentValues().apply {
@@ -125,9 +141,9 @@ class MainActivity : Activity() {
                         saved++
                     } catch (e: Exception) { contentResolver.delete(uri, null, null); throw e }
                 }
-                runOnUiThread { status.text = "تم حفظ $saved ملف في Downloads/MiniTube"; progress.progress = 100 }
+                runOnUiThread { progress.isIndeterminate = false; status.text = "تم حفظ $saved ملف في Downloads/MiniTube"; progress.progress = 100 }
             } catch (e: Exception) {
-                runOnUiThread { status.text = "تعذر التنزيل: ${e.localizedMessage}" }
+                runOnUiThread { progress.isIndeterminate = false; status.text = "تعذر التنزيل: ${e.localizedMessage}" }
             } finally {
                 temp.deleteRecursively()
                 runOnUiThread { button.isEnabled = true }
