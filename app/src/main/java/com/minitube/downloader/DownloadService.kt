@@ -128,7 +128,7 @@ class DownloadService : Service() {
                         } else {
                             request.addOption("-f", "bv*[height<=" + height + "]+ba/b[height<=" + height + "]/best/bv*+ba/b")
                             request.addOption("--merge-output-format", ext)
-                            if (ext == "mkv") request.addOption("--recode-video", ext)
+                            request.addOption("--recode-video", ext)
                         }
                         val id = "minitube_" + System.currentTimeMillis()
                         processId = id
