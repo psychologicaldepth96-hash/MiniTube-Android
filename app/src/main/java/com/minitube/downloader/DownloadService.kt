@@ -24,6 +24,7 @@ class DownloadService : Service() {
         @Volatile var total = 0
         @Volatile var etaSeconds = -1L
         @Volatile var lastError = ""
+        @Volatile var diagnostic = ""
     }
     private var processId: String? = null
     private lateinit var notifications: NotificationManager
@@ -114,7 +115,7 @@ class DownloadService : Service() {
                         notifyState("العنصر " + (index + 1) + " من " + total + " • محفوظ " + completed)
                         val request = YoutubeDLRequest(link)
                         request.addOption("--no-playlist")
-                        request.addOption("--no-warnings")
+                        // Preserve warnings and extractor details to diagnose unsupported sources.
                         request.addOption("--restrict-filenames")
                         request.addOption("--socket-timeout", "20")
                         request.addOption("--max-filesize", "2G")
@@ -132,7 +133,10 @@ class DownloadService : Service() {
                         }
                         val id = "minitube_" + System.currentTimeMillis()
                         processId = id
-                        YoutubeDL.getInstance().execute(request, id) { pct, eta, _ ->
+                        YoutubeDL.getInstance().execute(request, id) { pct, eta, line ->
+                            if (line.contains("ERROR:", true) || line.contains("WARNING:", true)) {
+                                diagnostic = line.takeLast(350)
+                            }
                             if (!stopped) {
                                 etaSeconds = eta
                                 val p = if (pct in 0f..100f) pct.toInt() else -1
@@ -174,7 +178,7 @@ class DownloadService : Service() {
                     } catch (e: Exception) {
                         if (!stopped) {
                             failures++
-                            lastError = (e.localizedMessage ?: e.javaClass.simpleName).take(220)
+                            lastError = (diagnostic.ifBlank { e.localizedMessage ?: e.javaClass.simpleName }).take(350)
                             notifyState("فشل العنصر " + (index + 1) + ": " + lastError)
                         }
                     } finally {
