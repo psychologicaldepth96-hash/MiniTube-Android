@@ -8,6 +8,8 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.ffmpeg.FFmpeg
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.concurrent.thread
 
 class DownloadService : Service() {
@@ -26,6 +28,38 @@ class DownloadService : Service() {
         @Volatile var lastError = ""
         @Volatile var diagnostic = ""
     }
+    private fun resolveFacebookShare(original: String): String {
+        val parsed = android.net.Uri.parse(original)
+        val host = parsed.host?.lowercase() ?: return original
+        if (!host.endsWith("facebook.com") || !parsed.path.orEmpty().startsWith("/share/")) return original
+        var candidate = original
+        try {
+            for (i in 0 until 5) {
+                val conn = (URL(candidate).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    requestMethod = "GET"
+                    connectTimeout = 12000
+                    readTimeout = 12000
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
+                }
+                val next = try {
+                    val code = conn.responseCode
+                    if (code !in 300..399) break
+                    val location = conn.getHeaderField("Location") ?: break
+                    URL(URL(candidate), location).toString()
+                } finally { conn.disconnect() }
+                val uri = android.net.Uri.parse(next)
+                val nextHost = uri.host?.lowercase() ?: break
+                if (uri.scheme != "https" || (nextHost != "facebook.com" && !nextHost.endsWith(".facebook.com"))) break
+                candidate = next
+                if (uri.path.orEmpty().startsWith("/reel/") || uri.path.orEmpty().startsWith("/watch/")) return candidate
+            }
+        } catch (e: Exception) {
+            diagnostic = "تعذر فتح رابط مشاركة فيسبوك: " + (e.localizedMessage ?: "تعذر الاتصال بالشبكة")
+        }
+        return candidate
+    }
+
     private var processId: String? = null
     private lateinit var notifications: NotificationManager
     override fun onBind(intent: Intent?) : IBinder? = null
@@ -93,6 +127,7 @@ class DownloadService : Service() {
                 YoutubeDL.getInstance().init(applicationContext)
                 FFmpeg.getInstance().init(applicationContext)
                 val base = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
+                val resolvedUrl = if (!playlist) resolveFacebookShare(url) else url
                 val links = if (playlist) {
                     val req = YoutubeDLRequest(url)
                     req.addOption("--flat-playlist")
@@ -104,7 +139,7 @@ class DownloadService : Service() {
                     val out = YoutubeDL.getInstance().execute(req, id).out
                     out.lines().map { it.trim() }.filter { Regex("^[a-zA-Z0-9_-]{11}$").matches(it) }.distinct()
                         .map { "https://www.youtube.com/watch?v=" + it }
-                } else listOf(url)
+                } else listOf(resolvedUrl)
                 if (links.size > 500) error("القائمة طويلة جدًا؛ الحد الأقصى 500 عنصر لكل مهمة")
                 total = links.size
                 if (links.isEmpty()) error("القائمة فارغة أو غير متاحة")
