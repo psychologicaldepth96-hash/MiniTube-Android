@@ -129,7 +129,7 @@ class MainActivity : Activity() {
         val paste = action("لصق الرابط", false) {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()
-            if (!text.isNullOrBlank()) url.setText(text)
+            if (!text.isNullOrBlank()) url.setText(SafeMediaUrl.extractSharedUrl(text))
             else Toast.makeText(this, "الحافظة فارغة", Toast.LENGTH_SHORT).show()
         }
         linkCard.addView(paste)
@@ -208,7 +208,7 @@ class MainActivity : Activity() {
             isFillViewport = true
             addView(root)
         })
-        if (intent?.action == Intent.ACTION_SEND) url.setText(intent.getStringExtra(Intent.EXTRA_TEXT) ?: "")
+        if (intent?.action == Intent.ACTION_SEND) url.setText(SafeMediaUrl.extractSharedUrl(intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""))
         button.isEnabled = false
         thread {
             try {
@@ -233,7 +233,7 @@ class MainActivity : Activity() {
 
     private fun download() {
         if (!initialized) { status.text = "لم تكتمل التهيئة"; return }
-        val link = url.text.toString().trim()
+        val link = SafeMediaUrl.extractSharedUrl(url.text.toString())
         if (!SafeMediaUrl.isAllowed(link)) {
             status.text = "رابط غير صالح أو غير مدعوم. استخدم HTTPS من منصة موثوقة."
             return
