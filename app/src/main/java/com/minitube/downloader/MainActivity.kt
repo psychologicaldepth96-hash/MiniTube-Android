@@ -290,6 +290,13 @@ class MainActivity : Activity() {
             } else if (initialized) {
                 button.isEnabled = true
                 cancelButton.isEnabled = false
+                if (DownloadService.lastError.isNotBlank()) {
+                    progress.isIndeterminate = false
+                    status.text = "سبب فشل آخر تنزيل: " + DownloadService.lastError
+                } else if (DownloadService.total > 0) {
+                    progress.isIndeterminate = false
+                    status.text = DownloadService.stage
+                }
             }
             handler.postDelayed(this, 1000)
         }
