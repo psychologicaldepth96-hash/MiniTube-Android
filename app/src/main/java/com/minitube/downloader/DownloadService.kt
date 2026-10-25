@@ -23,6 +23,7 @@ class DownloadService : Service() {
         @Volatile var completed = 0
         @Volatile var total = 0
         @Volatile var etaSeconds = -1L
+        @Volatile var lastError = ""
     }
     private var processId: String? = null
     private lateinit var notifications: NotificationManager
@@ -113,6 +114,7 @@ class DownloadService : Service() {
                         notifyState("العنصر " + (index + 1) + " من " + total + " • محفوظ " + completed)
                         val request = YoutubeDLRequest(link)
                         request.addOption("--no-playlist")
+                        request.addOption("--no-warnings")
                         request.addOption("--restrict-filenames")
                         request.addOption("--socket-timeout", "20")
                         request.addOption("--max-filesize", "2G")
@@ -124,9 +126,9 @@ class DownloadService : Service() {
                             request.addOption("--audio-format", ext)
                             request.addOption("--audio-quality", bitrate)
                         } else {
-                            request.addOption("-f", "bv*[height<=" + height + "]+ba/b[height<=" + height + "]/best")
+                            request.addOption("-f", "bv*[height<=" + height + "]+ba/b[height<=" + height + "]/best/bv*+ba/b")
                             request.addOption("--merge-output-format", ext)
-                            request.addOption("--recode-video", ext)
+                            if (ext == "mkv") request.addOption("--recode-video", ext)
                         }
                         val id = "minitube_" + System.currentTimeMillis()
                         processId = id
@@ -170,14 +172,19 @@ class DownloadService : Service() {
                         }
                         notifyState("تم حفظ " + completed + " من " + total)
                     } catch (e: Exception) {
-                        if (!stopped) failures++
+                        if (!stopped) {
+                            failures++
+                            lastError = (e.localizedMessage ?: e.javaClass.simpleName).take(220)
+                            notifyState("فشل العنصر " + (index + 1) + ": " + lastError)
+                        }
                     } finally {
                         dir.deleteRecursively()
                     }
                 }
-                notifyState(if (stopped) "أُلغي التنزيل • محفوظ " + completed else "اكتمل • محفوظ " + completed + "، فشل " + failures, finished = true)
+                notifyState(if (stopped) "أُلغي التنزيل • محفوظ " + completed else if (failures > 0 && completed == 0) "فشل التنزيل: " + lastError else "اكتمل • محفوظ " + completed + "، فشل " + failures, finished = true)
             } catch(e: Exception) {
-                notifyState(if (stopped) "أُلغي التنزيل" else "فشل: " + (e.localizedMessage ?: "خطأ"), finished = true)
+                lastError = (e.localizedMessage ?: "خطأ").take(220)
+                notifyState(if (stopped) "أُلغي التنزيل" else "فشل: " + lastError, finished = true)
             } finally {
                 running = false
                 processId = null
