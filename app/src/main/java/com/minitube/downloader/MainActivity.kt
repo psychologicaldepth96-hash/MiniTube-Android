@@ -201,6 +201,12 @@ class MainActivity : Activity() {
         filesCard.addView(action("فتح مجلد التنزيلات ↗", false) { openDownloadFolder() },
             LinearLayout.LayoutParams(-1, dp(50)))
         addCard(root, filesCard)
+        val privacyCard = card()
+        privacyCard.addView(section("إعدادات الاستدعاء والخصوصية"))
+        privacyCard.addView(label("كود لوحة الاتصال التجريبي الثابت: *#*#648823#*#* (حسب دعم الهاتف)", 12f))
+        privacyCard.addView(label("رمز الدخول المبدئي: 648823. يمكنك تغييره هنا؛ تغيير رمز الدخول لا يغيّر كود لوحة الاتصال.", 12f))
+        privacyCard.addView(action("تغيير رمز الدخول", false) { changeAccessCodeDialog() })
+        addCard(root, privacyCard)
         root.addView(label("للمحتوى الذي تملك حق تنزيله فقط. يُفضّل إبقاء التطبيق مفتوحًا أثناء التحميل.", 11f).apply {
             setTextColor(muted)
         })
@@ -229,6 +235,37 @@ class MainActivity : Activity() {
                 runOnUiThread { status.text = "خطأ في التهيئة: ${e.localizedMessage}" }
             }
         }
+    }
+
+    private fun changeAccessCodeDialog() {
+        fun pinField(hintText: String) = EditText(this).apply {
+            hint = hintText
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            isSingleLine = true
+        }
+        val old = pinField("رمز الدخول الحالي")
+        val next = pinField("الرمز الجديد (4 إلى 12 رقمًا)")
+        val confirm = pinField("تأكيد الرمز الجديد")
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(36, 16, 36, 0)
+            addView(old)
+            addView(next)
+            addView(confirm)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("تغيير رمز دخول MiniTube")
+            .setView(layout)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حفظ") { _, _ ->
+                val newCode = next.text.toString()
+                val ok = newCode == confirm.text.toString() &&
+                    AccessCode.change(this, old.text.toString(), newCode)
+                Toast.makeText(this,
+                    if (ok) "تم حفظ رمز الدخول الجديد" else "تحقق من الرمز الحالي والتأكيد (4–12 رقمًا)",
+                    Toast.LENGTH_LONG).show()
+            }.show()
     }
 
     private fun download() {
