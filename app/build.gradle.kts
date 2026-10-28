@@ -5,9 +5,9 @@ android {
     defaultConfig {
         applicationId = "com.minitube.downloader"
         minSdk = 29
-        targetSdk = 29
-        versionCode = 1
-        versionName = "1.1-lite"
+        targetSdk = 33
+        versionCode = 3
+        versionName = "1.3"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     buildTypes { release { isMinifyEnabled = false } }
